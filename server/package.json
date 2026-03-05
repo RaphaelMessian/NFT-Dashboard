@@ -1,0 +1,18 @@
+{
+  "name": "nft-dashboard-server",
+  "version": "1.0.0",
+  "description": "MongoDB backend + report API for NFT Launch Dashboard",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "sync": "node src/sync.js",
+    "report": "node src/generateReport.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongodb": "^6.16.0"
+  }
+}

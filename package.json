@@ -1,0 +1,27 @@
+{
+  "name": "nft-dashboard-hedera",
+  "version": "1.0.0",
+  "description": "NFT Launch Dashboard for Hedera Hashgraph Testnet",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "deploy": "npx hardhat run scripts/deploy.js --network hedera_testnet",
+    "mint": "npx hardhat run scripts/mint.js --network hedera_testnet",
+    "transfer": "npx hardhat run scripts/transfer.js --network hedera_testnet",
+    "create-wallets": "node scripts/createWallets.js",
+    "demo": "npx hardhat run scripts/demo.js --network hedera_testnet",
+    "seed": "npx hardhat run scripts/seed.js --network hedera_testnet",
+    "dashboard": "cd dashboard && npm run dev",
+    "server": "cd server && npm start",
+    "sync": "cd server && npm run sync",
+    "start": "cd dashboard && npm run dev"
+  },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.80.0",
+    "@openzeppelin/contracts": "^4.9.6"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "dotenv": "^16.3.1",
+    "hardhat": "^2.19.0"
+  }
+}
