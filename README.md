@@ -1,4 +1,4 @@
-# NFT Launch Dashboard — Hedera Hashgraph Testnet
+# NFT Launch Dashboard — Hedera Hashgraph Mainnet
 
 A full-stack dashboard for monitoring an NFT launch on Hedera Hashgraph testnet. Includes an ERC-721 smart contract, deployment/interaction scripts, a React dashboard, and a MongoDB-backed report page with D3 analytics.
 
