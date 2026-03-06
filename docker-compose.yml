@@ -1,0 +1,66 @@
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────
+  mongo:
+    image: mongo:6
+    container_name: nft-mongo
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: nft_dashboard
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Express API server ────────────────────────────────────────
+  api:
+    build:
+      context: ./server
+    container_name: nft-api
+    command: node src/server.js
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+    ports:
+      - "3002:3002"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Continuous sync (Hedera → MongoDB) ───────────────────────
+  sync:
+    build:
+      context: ./server
+    container_name: nft-sync
+    command: node src/sync.js
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-30}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── React dashboard (nginx) ──────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        VITE_NFT_CONTRACTS: ${VITE_NFT_CONTRACTS}
+        VITE_ACCOUNT_ID: ${VITE_ACCOUNT_ID}
+        # The browser hits the API from the host machine, so use localhost
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3002}
+    container_name: nft-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

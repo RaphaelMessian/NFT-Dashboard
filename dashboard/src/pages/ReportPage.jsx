@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  fetchSnapshots,
-  fetchSnapshotById,
-  fetchLatestSnapshot,
-} from "../api/reportApi";
+import { fetchLatestSnapshot } from "../api/reportApi";
 
 // D3 components
 import D3MintHeatmap from "../components/d3/D3MintHeatmap";
@@ -40,33 +36,18 @@ const Stat = ({ label, value, sub }) => (
 
 /* ────────────────────────────────────────────────── */
 export default function ReportPage() {
-  const [snapshots, setSnapshots] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const reportRef = useRef();
 
-  // Load snapshot list
+  // Always load the latest snapshot
   useEffect(() => {
-    fetchSnapshots()
-      .then((list) => {
-        setSnapshots(list);
-        if (list.length > 0) setSelectedId(list[list.length - 1]._id);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  // Load selected snapshot
-  useEffect(() => {
-    if (!selectedId) return;
-    setLoading(true);
-    fetchSnapshotById(selectedId)
+    fetchLatestSnapshot()
       .then(setSnapshot)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedId]);
+  }, []);
 
   /* ── Print / Export ── */
   const handlePrint = useCallback(() => {
@@ -113,22 +94,7 @@ export default function ReportPage() {
   return (
     <div ref={reportRef}>
       {/* Controls bar (hidden on print) */}
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <div className="flex items-center gap-3">
-          <label className="text-sm text-gray-400">Snapshot:</label>
-          <select
-            value={selectedId || ""}
-            onChange={(e) => setSelectedId(e.target.value)}
-            className="bg-gray-800 text-gray-200 text-sm rounded-lg px-3 py-1.5 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            {snapshots.map((s) => (
-              <option key={s._id} value={s._id}>
-                {fmtDate(s.createdAt)} — {s.totals.totalMints} mints,{" "}
-                {s.totals.uniqueHolders} holders
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="flex items-center justify-end mb-6 print:hidden">
         <button
           onClick={handlePrint}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"

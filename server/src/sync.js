@@ -475,8 +475,7 @@ async function sync() {
   const accountId = process.env.VITE_ACCOUNT_ID || "";
 
   if (contracts.length === 0) {
-    console.error("No contracts configured in VITE_NFT_CONTRACTS");
-    process.exit(1);
+    throw new Error("No contracts configured in VITE_NFT_CONTRACTS");
   }
 
   console.log("╔══════════════════════════════════════╗");
@@ -692,11 +691,40 @@ async function sync() {
   await col(db, "snapshots").insertOne(snapshot);
   console.log(`\n✅ Snapshot stored: ${snapshotId.toISOString()}`);
   console.log(`   Mints: ${totalMints}  Transfers: ${totalTransfers}  Holders: ${allHolderAddrs.size}  Wallets: ${walletsCreated}`);
-
-  await close();
 }
 
-sync().catch((err) => {
-  console.error("Sync failed:", err);
+async function runLoop() {
+  const intervalMin = parseInt(process.env.SYNC_INTERVAL_MINUTES || "0", 10);
+
+  // Always run an initial sync immediately
+  try {
+    await sync();
+  } catch (err) {
+    console.error("Sync failed:", err.message);
+  }
+
+  // If no interval configured, exit after the first run (one-shot mode)
+  if (intervalMin <= 0) {
+    await close();
+    return;
+  }
+
+  const intervalMs = intervalMin * 60 * 1000;
+  console.log(`\n⏱  Next sync in ${intervalMin} minute(s)...`);
+
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    console.log(`\n🔄 Starting scheduled sync (interval: ${intervalMin}min)...`);
+    try {
+      await sync();
+    } catch (err) {
+      console.error("Sync failed:", err.message);
+    }
+    console.log(`\n⏱  Next sync in ${intervalMin} minute(s)...`);
+  }
+}
+
+runLoop().catch((err) => {
+  console.error("Fatal:", err);
   process.exit(1);
 });
