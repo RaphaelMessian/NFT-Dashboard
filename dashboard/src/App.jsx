@@ -36,7 +36,7 @@ export default function App() {
                 NFT Launch Dashboard
               </h1>
               <p className="text-xs text-gray-400">
-                Hedera Hashgraph Testnet
+                Hedera Hashgraph Mainnet
                 {page === "live" && currentContract && (
                   <span className="ml-2 text-green-400">
                     • {currentContract.label}
@@ -99,12 +99,12 @@ export default function App() {
         <p className="text-center text-xs text-gray-600">
           Data sourced from{" "}
           <a
-            href="https://testnet.mirrornode.hedera.com"
+            href="https://mainnet-public.mirrornode.hedera.com"
             target="_blank"
             rel="noopener noreferrer"
             className="text-gray-500 hover:text-gray-300"
           >
-            Hedera Mirror Node (Testnet)
+            Hedera Mirror Node (Mainnet)
           </a>{" "}
           • {page === "live" ? "Auto-refreshes every 30s" : "Report from MongoDB snapshot"}
         </p>

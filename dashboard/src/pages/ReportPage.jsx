@@ -337,7 +337,7 @@ export default function ReportPage() {
           Report generated from MongoDB snapshot •{" "}
           {fmtDate(createdAt)}
         </p>
-        <p>Data source: Hedera Mirror Node (Testnet)</p>
+        <p>Data source: Hedera Mirror Node (Mainnet)</p>
       </div>
     </div>
   );

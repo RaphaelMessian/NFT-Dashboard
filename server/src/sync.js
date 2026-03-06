@@ -17,7 +17,7 @@ const { connect, close, col, ensureIndexes } = require("./db");
 
 // ── Mirror Node helpers (server-side, no ES modules) ──────────
 
-const MIRROR_BASE = "https://testnet.mirrornode.hedera.com";
+const MIRROR_BASE = "https://mainnet-public.mirrornode.hedera.com";
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const ZERO_TOPIC =
@@ -88,17 +88,24 @@ function processLogs(rawLogs) {
 
 async function fetchAccountCreations(accountId) {
   const creations = [];
-  let url = `${MIRROR_BASE}/api/v1/transactions?transactiontype=CRYPTOCREATEACCOUNT&account.id=${accountId}&order=asc&limit=100`;
+  // Don't filter by transactiontype server-side: lazy-creation (HIP-32) generates
+  // CRYPTOCREATEACCOUNT as a child transaction (nonce=1) whose transfers list does
+  // not contain the payer, so the mirror node ignores the account.id filter for them.
+  // Instead, fetch all transactions from the account and filter client-side.
+  let url = `${MIRROR_BASE}/api/v1/transactions?account.id=${accountId}&order=asc&limit=100`;
   while (url) {
     const data = await fetchJson(url);
     for (const tx of data.transactions || []) {
-      creations.push({
-        transactionId: tx.transaction_id,
-        timestamp: tx.consensus_timestamp
-          ? new Date(parseFloat(tx.consensus_timestamp) * 1000)
-          : null,
-        result: tx.result,
-      });
+      if (tx.name === "CRYPTOCREATEACCOUNT" && tx.result === "SUCCESS") {
+        creations.push({
+          transactionId: tx.transaction_id,
+          timestamp: tx.consensus_timestamp
+            ? new Date(parseFloat(tx.consensus_timestamp) * 1000)
+            : null,
+          result: tx.result,
+          entityId: tx.entity_id,
+        });
+      }
     }
     url = data.links?.next ? `${MIRROR_BASE}${data.links.next}` : null;
   }
