@@ -57,6 +57,13 @@ async function ensureIndexes(db) {
 
   // Wallets — query by creator + timestamp
   await col(db, "wallets").createIndex({ creatorAccountId: 1, timestamp: 1 });
+  await col(db, "wallets").createIndex({ transactionId: 1 });
+
+  // Sync cursors — one doc per contract/wallet being tracked
+  await col(db, "sync_cursors").createIndex({ key: 1 }, { unique: true });
+
+  // Account info cache — EVM address → creation timestamp
+  await col(db, "account_info").createIndex({ address: 1 }, { unique: true });
   await col(db, "wallets").createIndex({ snapshotId: 1 });
 
   console.log("[MongoDB] Indexes ensured");

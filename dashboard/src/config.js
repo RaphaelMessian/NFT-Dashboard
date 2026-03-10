@@ -2,7 +2,7 @@
  * Parse dashboard configuration from Vite environment variables.
  *
  * VITE_NFT_CONTRACTS format: "Label1:0.0.XXXXX,Label2:0.0.YYYYY"
- * VITE_ACCOUNT_ID: "0.0.XXXXX"
+ * VITE_ACCOUNT_ID: "0.0.XXXXX" or "0.0.XXXXX,0.0.YYYYY,..."
  */
 
 /**
@@ -31,8 +31,17 @@ export function getContracts() {
 }
 
 /**
- * Get the creator account ID from env.
+ * Get all creator account IDs from env (comma-separated list).
+ * @returns {string[]}
+ */
+export function getAccountIds() {
+  const raw = import.meta.env.VITE_ACCOUNT_ID || "";
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Get the primary creator account ID from env (first in the list).
  */
 export function getAccountId() {
-  return import.meta.env.VITE_ACCOUNT_ID || "";
+  return getAccountIds()[0] || "";
 }

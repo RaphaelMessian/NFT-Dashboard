@@ -1,22 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import {
-  fetchTransferLogs,
-  processTransferLogs,
-  fetchContractInfo,
-  fetchAccountCreationTimestamps,
-  buildDailyActivity,
-  buildCumulativeMints,
-  buildHolderDistribution,
-} from "../api/mirrorNode";
-import {
-  computeTimeToMint,
-  summariseTimeToMint,
-  buildMintVelocity,
-  computeSellPressure,
-  buildMintTimingHeatmap,
-  computeSingleUseWalletRate,
-  buildHolderGrowth,
-} from "../api/analytics";
+import { fetchLatestSnapshot, fetchMints, fetchTransfers, fetchHolders } from "../api/reportApi";
+
+const SP_COLORS = {
+  "Very Low": "text-green-400",
+  "Low": "text-green-300",
+  "Moderate": "text-yellow-400",
+  "High": "text-orange-400",
+  "Very High": "text-red-400",
+};
 
 /**
  * Custom hook that manages dashboard data for a single contract.
@@ -41,7 +32,6 @@ export function useDashboardData(contractId, accountId) {
   const [cumulativeMints, setCumulativeMints] = useState([]);
   const [holderDistribution, setHolderDistribution] = useState([]);
   const [contractInfo, setContractInfo] = useState(null);
-  const [timeToMint, setTimeToMint] = useState({ entries: [], summary: { avg: 0, median: 0, min: 0, max: 0, count: 0 } });
   const [mintVelocity, setMintVelocity] = useState([]);
   const [sellPressure, setSellPressure] = useState({ pressure: 0, label: "No data", color: "text-gray-500" });
   const [mintTimingHeatmap, setMintTimingHeatmap] = useState(null);
@@ -62,79 +52,35 @@ export function useDashboardData(contractId, accountId) {
     setError(null);
 
     try {
-      // Fetch contract info and transfer logs in parallel
-      const [info, rawLogs] = await Promise.all([
-        fetchContractInfo(contractId).catch(() => null),
-        fetchTransferLogs(contractId),
-      ]);
+      const snapshot = await fetchLatestSnapshot();
 
-      // Prevent stale updates if contract was switched while loading
       if (currentContractRef.current !== contractId) return;
 
-      setContractInfo(info);
-
-      // Process transfer events
-      const processed = processTransferLogs(rawLogs);
-      setMints(processed.mints);
-      setTransfers(processed.transfers);
-      setHolders(processed.holders);
-
-      // Build chart data
-      setDailyActivity(buildDailyActivity(processed.mints, processed.transfers));
-      setCumulativeMints(buildCumulativeMints(processed.mints));
-      setHolderDistribution(buildHolderDistribution(processed.holders));
-
-      // Compute time-to-mint
-      const minterAddrs = [...new Set(processed.mints.map((m) => m.to.toLowerCase()))];
-      let ttmEntries = [];
-      if (minterAddrs.length > 0) {
-        try {
-          const creationMap = await fetchAccountCreationTimestamps(minterAddrs);
-          ttmEntries = computeTimeToMint(processed.mints, creationMap);
-        } catch {
-          // Non-critical
-        }
-      }
-      setTimeToMint({
-        entries: ttmEntries,
-        summary: summariseTimeToMint(ttmEntries),
-      });
-
-      // Mint velocity (mints per hour)
-      setMintVelocity(buildMintVelocity(processed.mints));
-
-      // Sell pressure
-      setSellPressure(
-        computeSellPressure(processed.transfers.length, processed.mints.length)
-      );
-
-      // Mint timing heatmap
-      setMintTimingHeatmap(buildMintTimingHeatmap(processed.mints));
-
-      // Single-use wallet rate
-      setSingleUseWalletRate(
-        computeSingleUseWalletRate(processed.mints, processed.transfers)
-      );
-
-      // Holder growth over time
-      setHolderGrowth(buildHolderGrowth(processed.mints, processed.transfers));
-
-      // Update stats
+      const contractData = (snapshot?.contracts ?? []).find((c) => c.contractId === contractId);
+      const analytics = contractData?.analytics ?? {};
+      const contractStats = contractData?.stats ?? {};
       setStats({
-        totalMints: processed.mints.length,
-        totalTransfers: processed.transfers.length,
-        uniqueHolders: processed.holders.length,
+        totalMints: contractStats.totalMints ?? 0,
+        totalTransfers: contractStats.totalTransfers ?? 0,
+        uniqueHolders: contractStats.uniqueHolders ?? 0,
       });
-
+      setDailyActivity(analytics.dailyActivity ?? []);
+      setCumulativeMints(analytics.cumulativeMints ?? []);
+      setHolderDistribution(analytics.holderDistribution ?? []);
+      setContractInfo(contractData?.contractInfo ?? null);
+      setMintVelocity(analytics.mintVelocity ?? []);
+      const sp = analytics.sellPressure ?? {};
+      setSellPressure({ pressure: 0, label: "No data", ...sp, color: SP_COLORS[sp.label] ?? "text-gray-500" });
+      setMintTimingHeatmap(analytics.mintTimingHeatmap ?? null);
+      setSingleUseWalletRate(analytics.singleUseWalletRate ?? { singleUseCount: 0, totalMinters: 0, rate: 0 });
+      setHolderGrowth(analytics.holderGrowth ?? []);
       setLastRefresh(new Date());
     } catch (err) {
-      if (currentContractRef.current === contractId) {
-        setError(err.message);
-      }
+      if (currentContractRef.current === contractId) setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [contractId, accountId]);
+  }, [contractId]);
 
   // Reset state when contract changes
   useEffect(() => {
@@ -145,7 +91,6 @@ export function useDashboardData(contractId, accountId) {
     setCumulativeMints([]);
     setHolderDistribution([]);
     setContractInfo(null);
-    setTimeToMint({ entries: [], summary: { avg: 0, median: 0, min: 0, max: 0, count: 0 } });
     setMintVelocity([]);
     setSellPressure({ pressure: 0, label: "No data", color: "text-gray-500" });
     setMintTimingHeatmap(null);
@@ -154,6 +99,30 @@ export function useDashboardData(contractId, accountId) {
     setStats({ totalMints: 0, totalTransfers: 0, uniqueHolders: 0 });
     setLastRefresh(null);
     setError(null);
+  }, [contractId]);
+
+  // Load raw table data (mints, transfers, holders) once per contractId.
+  // Not called on every refresh — these are historical records that change rarely.
+  useEffect(() => {
+    if (!contractId) return;
+    let cancelled = false;
+    const toDate = (v) => (v ? new Date(v) : null);
+    (async () => {
+      try {
+        const [rawMints, rawTransfers, rawHolders] = await Promise.all([
+          fetchMints(null, contractId),
+          fetchTransfers(null, contractId),
+          fetchHolders(null, contractId),
+        ]);
+        if (cancelled) return;
+        setMints(rawMints.map((m) => ({ ...m, timestamp: toDate(m.timestamp) })));
+        setTransfers(rawTransfers.map((t) => ({ ...t, timestamp: toDate(t.timestamp) })));
+        setHolders(rawHolders);
+      } catch (err) {
+        console.error("Failed to load table data:", err);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [contractId]);
 
   return {
@@ -168,7 +137,6 @@ export function useDashboardData(contractId, accountId) {
     cumulativeMints,
     holderDistribution,
     contractInfo,
-    timeToMint,
     mintVelocity,
     sellPressure,
     mintTimingHeatmap,

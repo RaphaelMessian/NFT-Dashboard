@@ -40,14 +40,32 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const reportRef = useRef();
+  const retryRef = useRef(null);
 
-  // Always load the latest snapshot
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
     fetchLatestSnapshot()
-      .then(setSnapshot)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .then((data) => {
+        setSnapshot(data);
+        setLoading(false);
+      })
+      .catch((e) => {
+        // 404 = sync not done yet — retry every 10s silently
+        if (e.message.includes("404")) {
+          setLoading(false);
+          retryRef.current = setTimeout(load, 10000);
+        } else {
+          setError(e.message);
+          setLoading(false);
+        }
+      });
   }, []);
+
+  useEffect(() => {
+    load();
+    return () => clearTimeout(retryRef.current);
+  }, [load]);
 
   /* ── Print / Export ── */
   const handlePrint = useCallback(() => {
@@ -64,27 +82,13 @@ export default function ReportPage() {
     );
   }
 
-  if (error) {
+  if (!snapshot && !error) {
     return (
-      <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300 max-w-xl mx-auto mt-10">
-        <p className="font-semibold mb-1">⚠ Report Error</p>
-        <p className="text-sm">{error}</p>
-        <p className="text-xs text-red-400 mt-2">
-          Make sure the API server is running on port 3002 and MongoDB has
-          snapshot data.
-        </p>
-      </div>
-    );
-  }
-
-  if (!snapshot) {
-    return (
-      <div className="text-gray-400 text-center py-20">
-        <p className="text-lg">No snapshots available.</p>
-        <p className="text-sm mt-1">
-          Run <code className="text-indigo-400">node src/sync.js</code> in{" "}
-          <code className="text-indigo-400">server/</code> to create one.
-        </p>
+      <div className="text-center py-20 space-y-3">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mx-auto" />
+        <p className="text-gray-300 font-medium">First sync in progress…</p>
+        <p className="text-sm text-gray-500">Fetching on-chain data from the Mirror Node.</p>
+        <p className="text-xs text-gray-600">This page will load automatically when the first snapshot is ready.</p>
       </div>
     );
   }
@@ -288,46 +292,6 @@ export default function ReportPage() {
             </Card>
           </div>
 
-          {/* Time to mint by contract */}
-          {crossRace.timeToMintByContract && (
-            <Card title="Time-to-Mint by Contract" className="mb-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {(Array.isArray(crossRace.timeToMintByContract)
-                  ? crossRace.timeToMintByContract
-                  : Object.entries(crossRace.timeToMintByContract).map(
-                      ([k, v]) => ({ label: k, summary: v })
-                    )
-                ).map((item, i) => (
-                  <div
-                    key={i}
-                    className="bg-gray-800/50 rounded-lg p-3 text-center"
-                  >
-                    <p className="text-sm font-medium text-gray-300">
-                      {item.label}
-                    </p>
-                    <p className="text-lg font-bold text-white mt-1">
-                      {item.summary?.median != null
-                        ? fmtDuration(item.summary.median)
-                        : "N/A"}
-                    </p>
-                    <p className="text-[10px] text-gray-500">
-                      median TTM
-                      {item.summary?.count
-                        ? ` (${item.summary.count} minters)`
-                        : ""}
-                    </p>
-                    {item.summary?.avg != null && (
-                      <p className="text-[10px] text-gray-600">
-                        avg: {fmtDuration(item.summary.avg)} • min:{" "}
-                        {fmtDuration(item.summary.min)} • max:{" "}
-                        {fmtDuration(item.summary.max)}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
         </section>
       )}
 
@@ -343,11 +307,4 @@ export default function ReportPage() {
   );
 }
 
-/* Helper to format seconds into human-readable duration */
-function fmtDuration(seconds) {
-  if (seconds == null || isNaN(seconds)) return "N/A";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-  if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`;
-  return `${(seconds / 86400).toFixed(1)}d`;
-}
+

@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useOverviewData } from "../hooks/useOverviewData";
-import { formatDuration } from "../api/analytics";
+import ActivityChart from "../components/ActivityChart";
 
 /**
  * Main overview page — shows aggregated stats across ALL NFT contracts
@@ -19,11 +19,11 @@ export default function OverviewPage({ contracts, accountId, onSelectContract })
     returnRates,
     cumulativeUniqueMinters,
     lapsedReactivation,
-    timeToMintByContract,
     multiRaceHolders,
     churnFunnel,
     sellPressureByContract,
     singleUseRateByContract,
+    dailyActivity,
     refresh,
   } = useOverviewData(contracts, accountId);
 
@@ -151,6 +151,9 @@ export default function OverviewPage({ contracts, accountId, onSelectContract })
         </div>
       </div>
 
+      {/* Daily Activity */}
+      <ActivityChart data={dailyActivity} />
+
       {/* ── Cross-Race Analytics ── */}
       {contracts.length >= 1 && (
         <div className="space-y-6">
@@ -253,61 +256,6 @@ export default function OverviewPage({ contracts, accountId, onSelectContract })
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       wallet{l.reactivatedCount !== 1 ? "s" : ""} reactivated
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Per-contract Time to Mint */}
-          {timeToMintByContract.length > 0 && (
-            <div className="rounded-xl border border-gray-700/50 bg-gray-900/50 p-5">
-              <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                <span>⏱️</span> Time to Mint
-                <span className="text-xs text-gray-500 font-normal">
-                  (account creation → first mint)
-                </span>
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {timeToMintByContract.map((t) => (
-                  <div
-                    key={t.contractId}
-                    className="rounded-lg border border-gray-700/40 bg-gray-800/40 p-4"
-                  >
-                    <p className="text-xs text-gray-500 mb-2">{t.label}</p>
-                    {t.summary.count === 0 ? (
-                      <p className="text-sm text-gray-600">No data yet</p>
-                    ) : (
-                      <div className="grid grid-cols-4 gap-2 text-center">
-                        <div>
-                          <p className="text-xs text-gray-500">Avg</p>
-                          <p className="text-lg font-bold text-teal-400">
-                            {formatDuration(t.summary.avg)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Median</p>
-                          <p className="text-lg font-bold text-teal-400">
-                            {formatDuration(t.summary.median)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Min</p>
-                          <p className="text-lg font-bold text-green-400">
-                            {formatDuration(t.summary.min)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Max</p>
-                          <p className="text-lg font-bold text-red-400">
-                            {formatDuration(t.summary.max)}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-600 mt-2 text-right">
-                      {t.summary.count} minter{t.summary.count !== 1 ? "s" : ""}
                     </p>
                   </div>
                 ))}

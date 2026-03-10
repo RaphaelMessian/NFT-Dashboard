@@ -23,16 +23,42 @@ const TRANSFER_TOPIC =
 const ZERO_TOPIC =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Mirror ${res.status}: ${url}`);
-  return res.json();
+// ── Global rate limiter: min gap between Mirror Node requests ──
+const MIRROR_MIN_INTERVAL_MS = 250; // max ~4 req/s
+let _lastRequestAt = 0;
+
+async function fetchJson(url, retries = 5) {
+  // Proactive throttle — wait until minimum interval has elapsed
+  const now = Date.now();
+  const gap = now - _lastRequestAt;
+  if (gap < MIRROR_MIN_INTERVAL_MS) {
+    await new Promise((r) => setTimeout(r, MIRROR_MIN_INTERVAL_MS - gap));
+  }
+  _lastRequestAt = Date.now();
+
+  let delay = 3000;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(url);
+    if (res.ok) return res.json();
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("retry-after");
+      const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
+      console.warn(`  ⚠ 429 — waiting ${wait / 1000}s (attempt ${attempt + 1}/${retries + 1})`);
+      await new Promise((r) => setTimeout(r, wait));
+      _lastRequestAt = Date.now();
+      delay = Math.min(delay * 2, 60000);
+      continue;
+    }
+    throw new Error(`Mirror ${res.status}: ${url}`);
+  }
+  throw new Error(`Mirror still 429 after ${retries} retries: ${url}`);
 }
 
-async function fetchTransferLogs(contractId) {
+async function fetchTransferLogs(contractId, afterTimestamp = null) {
   const logs = [];
   let url =
     `${MIRROR_BASE}/api/v1/contracts/${contractId}/results/logs?order=asc&limit=100`;
+  if (afterTimestamp) url += `&timestamp=gt:${afterTimestamp}`;
   while (url) {
     const data = await fetchJson(url);
     const filtered = (data.logs || []).filter(
@@ -86,19 +112,21 @@ function processLogs(rawLogs) {
   return { mints, transfers, holders };
 }
 
-async function fetchAccountCreations(accountId) {
+async function fetchAccountCreations(accountId, afterTimestamp = null) {
   const creations = [];
   // Don't filter by transactiontype server-side: lazy-creation (HIP-32) generates
   // CRYPTOCREATEACCOUNT as a child transaction (nonce=1) whose transfers list does
   // not contain the payer, so the mirror node ignores the account.id filter for them.
   // Instead, fetch all transactions from the account and filter client-side.
   let url = `${MIRROR_BASE}/api/v1/transactions?account.id=${accountId}&order=asc&limit=100`;
+  if (afterTimestamp) url += `&timestamp=gt:${afterTimestamp}`;
   while (url) {
     const data = await fetchJson(url);
     for (const tx of data.transactions || []) {
       if (tx.name === "CRYPTOCREATEACCOUNT" && tx.result === "SUCCESS") {
         creations.push({
           transactionId: tx.transaction_id,
+          consensusTimestamp: tx.consensus_timestamp,
           timestamp: tx.consensus_timestamp
             ? new Date(parseFloat(tx.consensus_timestamp) * 1000)
             : null,
@@ -126,28 +154,6 @@ async function fetchAccountInfo(addr) {
   } catch {
     return null;
   }
-}
-
-async function fetchAccountCreationTimestamps(addresses) {
-  const map = {};
-  const unique = [...new Set(addresses.map((a) => a.toLowerCase()))];
-  const BATCH = 10;
-  for (let i = 0; i < unique.length; i += BATCH) {
-    const batch = unique.slice(i, i + BATCH);
-    const results = await Promise.all(
-      batch.map(async (addr) => {
-        const info = await fetchAccountInfo(addr);
-        if (info?.created_timestamp) {
-          return [addr, new Date(parseFloat(info.created_timestamp) * 1000)];
-        }
-        return [addr, null];
-      })
-    );
-    for (const [addr, ts] of results) {
-      if (ts) map[addr] = ts;
-    }
-  }
-  return map;
 }
 
 // ── Analytics (inline, no ES module deps) ─────────────────────
@@ -346,42 +352,6 @@ function detectFundingClusters(creations, windowSec = 60) {
   };
 }
 
-function computeTimeToMint(mints, creationMap) {
-  const firstMintByAddr = {};
-  for (const m of mints) {
-    const a = m.to.toLowerCase();
-    if (!firstMintByAddr[a] || m.timestamp < firstMintByAddr[a]) {
-      firstMintByAddr[a] = m.timestamp;
-    }
-  }
-  const entries = [];
-  for (const [addr, firstMint] of Object.entries(firstMintByAddr)) {
-    const created = creationMap[addr];
-    if (created && firstMint) {
-      const deltaSec = (firstMint - created) / 1000;
-      if (deltaSec >= 0) {
-        entries.push({ address: addr, createdAt: created, firstMintAt: firstMint, deltaSec });
-      }
-    }
-  }
-  entries.sort((a, b) => a.deltaSec - b.deltaSec);
-  return entries;
-}
-
-function summariseTimeToMint(entries) {
-  if (entries.length === 0) return { avg: 0, median: 0, min: 0, max: 0, count: 0 };
-  const vals = entries.map((e) => e.deltaSec);
-  const sum = vals.reduce((s, v) => s + v, 0);
-  const mid = Math.floor(vals.length / 2);
-  return {
-    avg: sum / vals.length,
-    median: vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2,
-    min: vals[0],
-    max: vals[vals.length - 1],
-    count: vals.length,
-  };
-}
-
 function computeHoldDurations(mints, transfers, flipThresholdSec = 300) {
   const mintTime = {};
   for (const m of mints) mintTime[m.tokenId] = m.timestamp;
@@ -460,6 +430,16 @@ function buildHolderDistribution(holders) {
     .filter((r) => r.count > 0);
 }
 
+function buildCumulativeMints(mints) {
+  const sorted = [...mints].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  let cumulative = 0;
+  return sorted.map((m) => ({
+    date: m.timestamp ? m.timestamp.toISOString().split("T")[0] : null,
+    tokenId: m.tokenId,
+    total: ++cumulative,
+  }));
+}
+
 // ── Config ────────────────────────────────────────────────
 
 function parseContracts() {
@@ -475,11 +455,58 @@ function parseContracts() {
     });
 }
 
+// ── Incremental sync helpers ──────────────────────────────
+
+async function getCursor(db, key) {
+  const doc = await col(db, "sync_cursors").findOne({ key });
+  return doc?.lastTimestamp || null;
+}
+
+async function saveCursor(db, key, lastTimestamp) {
+  await col(db, "sync_cursors").updateOne(
+    { key },
+    { $set: { key, lastTimestamp, updatedAt: new Date() } },
+    { upsert: true }
+  );
+}
+
+/**
+ * Compute current holder balances by replaying all decoded mint/transfer events.
+ * Works on documents already stored in DB (decoded format, not raw logs).
+ */
+function computeHoldersFromEvents(mints, transfers) {
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const balances = {};
+  const events = [...mints, ...transfers].sort(
+    (a, b) => (a.timestamp?.getTime?.() || 0) - (b.timestamp?.getTime?.() || 0)
+  );
+  for (const ev of events) {
+    const from = (ev.from || "").toLowerCase();
+    const to   = (ev.to   || "").toLowerCase();
+    if (from && from !== ZERO) {
+      if (balances[from]) {
+        balances[from].delete(ev.tokenId);
+        if (balances[from].size === 0) delete balances[from];
+      }
+    }
+    if (to && to !== ZERO) {
+      if (!balances[to]) balances[to] = new Set();
+      balances[to].add(ev.tokenId);
+    }
+  }
+  return Object.entries(balances)
+    .map(([address, ids]) => ({ address, tokenCount: ids.size, tokenIds: [...ids] }))
+    .sort((a, b) => b.tokenCount - a.tokenCount);
+}
+
 // ── Main sync ─────────────────────────────────────────────
 
 async function sync() {
   const contracts = parseContracts();
-  const accountId = process.env.VITE_ACCOUNT_ID || "";
+  const accountIds = (process.env.VITE_ACCOUNT_ID || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (contracts.length === 0) {
     throw new Error("No contracts configured in VITE_NFT_CONTRACTS");
@@ -489,7 +516,7 @@ async function sync() {
   console.log("║   NFT Dashboard → MongoDB Sync       ║");
   console.log("╚══════════════════════════════════════╝\n");
   console.log(`Contracts: ${contracts.map((c) => c.label).join(", ")}`);
-  console.log(`Account:   ${accountId}\n`);
+  console.log(`Accounts:  ${accountIds.length > 0 ? accountIds.join(", ") : "(none)"}\n`);
 
   const db = await connect();
 
@@ -510,74 +537,93 @@ async function sync() {
   for (const c of contracts) {
     console.log(`\n━━━ ${c.label} (${c.contractId}) ━━━`);
 
+    // ── Incremental fetch: only logs newer than the stored cursor ──
+    const cursorKey = `contract:${c.contractId}`;
+    const cursor = await getCursor(db, cursorKey);
+    if (cursor) {
+      console.log(`  Incremental sync from timestamp ${cursor}`);
+    } else {
+      console.log(`  First sync — fetching full history`);
+    }
+
     const [info, rawLogs] = await Promise.all([
       fetchContractInfo(c.contractId),
-      fetchTransferLogs(c.contractId),
+      fetchTransferLogs(c.contractId, cursor),
     ]);
+    console.log(`  New logs fetched: ${rawLogs.length}`);
 
-    const processed = processLogs(rawLogs);
-    console.log(
-      `  Mints: ${processed.mints.length}  Transfers: ${processed.transfers.length}  Holders: ${processed.holders.length}`
-    );
+    // ── Upsert new events into canonical collections (no snapshotId) ──
+    if (rawLogs.length > 0) {
+      const decoded = rawLogs.map(decodeLog);
+      const newMints     = decoded.filter((d) =>  d.isMint).map((d) => ({ ...d, contractId: c.contractId, contractLabel: c.label }));
+      const newTransfers = decoded.filter((d) => !d.isMint).map((d) => ({ ...d, contractId: c.contractId, contractLabel: c.label }));
 
-    // Store individual mints
-    if (processed.mints.length > 0) {
-      const mintDocs = processed.mints.map((m) => ({
-        ...m,
-        contractId: c.contractId,
-        contractLabel: c.label,
-        snapshotId,
-      }));
-      await col(db, "mints").insertMany(mintDocs);
-      console.log(`  → ${mintDocs.length} mints stored`);
+      for (const m of newMints) {
+        await col(db, "mints").updateOne(
+          { contractId: m.contractId, transactionHash: m.transactionHash, tokenId: m.tokenId },
+          { $setOnInsert: m },
+          { upsert: true }
+        );
+      }
+      for (const t of newTransfers) {
+        await col(db, "transfers").updateOne(
+          { contractId: t.contractId, transactionHash: t.transactionHash, tokenId: t.tokenId },
+          { $setOnInsert: t },
+          { upsert: true }
+        );
+      }
+
+      // Advance cursor to the raw timestamp of the last fetched log
+      const lastRawTs = rawLogs[rawLogs.length - 1].timestamp;
+      if (lastRawTs) await saveCursor(db, cursorKey, lastRawTs);
+
+      console.log(`  → ${newMints.length} new mints, ${newTransfers.length} new transfers upserted`);
     }
 
-    // Store individual transfers
-    if (processed.transfers.length > 0) {
-      const transferDocs = processed.transfers.map((t) => ({
-        ...t,
-        contractId: c.contractId,
-        contractLabel: c.label,
-        snapshotId,
-      }));
-      await col(db, "transfers").insertMany(transferDocs);
-      console.log(`  → ${transferDocs.length} transfers stored`);
+    // ── Reload full dataset from DB to compute analytics ──
+    const allMints = await col(db, "mints")
+      .find({ contractId: c.contractId })
+      .sort({ timestamp: 1 })
+      .toArray();
+    const allTransfers = await col(db, "transfers")
+      .find({ contractId: c.contractId })
+      .sort({ timestamp: 1 })
+      .toArray();
+    console.log(`  Total — Mints: ${allMints.length}  Transfers: ${allTransfers.length}`);
+
+    // ── Recompute holders from full event history ──
+    const holders = computeHoldersFromEvents(allMints, allTransfers);
+    console.log(`  Holders: ${holders.length}`);
+
+    await col(db, "holders").deleteMany({ contractId: c.contractId });
+    if (holders.length > 0) {
+      await col(db, "holders").insertMany(
+        holders.map((h) => ({ ...h, contractId: c.contractId, contractLabel: c.label }))
+      );
     }
 
-    // Store holders
-    if (processed.holders.length > 0) {
-      const holderDocs = processed.holders.map((h) => ({
-        ...h,
-        contractId: c.contractId,
-        contractLabel: c.label,
-        snapshotId,
-      }));
-      await col(db, "holders").insertMany(holderDocs);
-      console.log(`  → ${holderDocs.length} holders stored`);
-    }
-
-    // Compute per-contract analytics
-    const minterSet = new Set(processed.mints.map((m) => m.to.toLowerCase()));
-    const sellPres = computeSellPressure(processed.transfers.length, processed.mints.length);
-    const singleUse = computeSingleUseRate(processed.mints, processed.transfers);
-    const holderGrowth = buildHolderGrowth(processed.mints, processed.transfers);
-    const heatmap = buildMintTimingHeatmap(processed.mints);
-    const velocity = buildMintVelocity(processed.mints);
-    const dailyActivity = buildDailyActivity(processed.mints, processed.transfers);
+    // ── Compute per-contract analytics ──
+    const minterSet = new Set(allMints.map((m) => m.to.toLowerCase()));
+    const sellPres = computeSellPressure(allTransfers.length, allMints.length);
+    const singleUse = computeSingleUseRate(allMints, allTransfers);
+    const holderGrowth = buildHolderGrowth(allMints, allTransfers);
+    const heatmap = buildMintTimingHeatmap(allMints);
+    const velocity = buildMintVelocity(allMints);
+    const dailyActivity = buildDailyActivity(allMints, allTransfers);
 
     contractResults.push({
       label: c.label,
       contractId: c.contractId,
       contractInfo: info,
       stats: {
-        totalMints: processed.mints.length,
-        totalTransfers: processed.transfers.length,
-        uniqueHolders: processed.holders.length,
-        totalSupply: processed.mints.length,
+        totalMints: allMints.length,
+        totalTransfers: allTransfers.length,
+        uniqueHolders: holders.length,
+        totalSupply: allMints.length,
       },
       minterAddresses: [...minterSet],
       minterSet,
-      holders: processed.holders,
+      holders,
       analytics: {
         sellPressure: sellPres,
         singleUseWalletRate: singleUse,
@@ -585,6 +631,8 @@ async function sync() {
         mintTimingHeatmap: heatmap,
         mintVelocity: velocity,
         dailyActivity,
+        cumulativeMints: buildCumulativeMints(allMints),
+        holderDistribution: buildHolderDistribution(holders),
       },
     });
   }
@@ -600,64 +648,39 @@ async function sync() {
   );
   const churnFunnel = buildChurnFunnel(minterSets);
 
-  // Wallets
+  // Wallets — sync all configured creator accounts
   let walletsCreated = 0;
-  if (accountId) {
-    console.log(`\nFetching wallet creations for ${accountId}...`);
-    const creations = await fetchAccountCreations(accountId);
-    walletsCreated = creations.length;
-    console.log(`  ${walletsCreated} wallets created`);
-
-    // Store wallet records
-    if (creations.length > 0) {
-      const walletDocs = creations.map((w) => ({
-        ...w,
-        creatorAccountId: accountId,
-        snapshotId,
-      }));
-      await col(db, "wallets").insertMany(walletDocs);
+  for (const accountId of accountIds) {
+    const walletCursorKey = `wallet:${accountId}`;
+    const walletCursor = await getCursor(db, walletCursorKey);
+    if (walletCursor) {
+      console.log(`\nFetching wallet creations for ${accountId} since ${walletCursor}...`);
+    } else {
+      console.log(`\nFetching all wallet creations for ${accountId}...`);
     }
+
+    const newCreations = await fetchAccountCreations(accountId, walletCursor);
+    console.log(`  ${newCreations.length} new wallet(s) found`);
+
+    if (newCreations.length > 0) {
+      for (const w of newCreations) {
+        if (!w.transactionId) continue;
+        await col(db, "wallets").updateOne(
+          { transactionId: w.transactionId },
+          { $setOnInsert: { ...w, creatorAccountId: accountId } },
+          { upsert: true }
+        );
+      }
+      const lastWalletTs = newCreations[newCreations.length - 1].consensusTimestamp;
+      if (lastWalletTs) await saveCursor(db, walletCursorKey, lastWalletTs);
+    }
+
+    const count = await col(db, "wallets").countDocuments({ creatorAccountId: accountId });
+    console.log(`  Total wallets in DB for ${accountId}: ${count}`);
+    walletsCreated += count;
   }
-
-  // Time-to-mint (needs account creation timestamps)
-  const allMinterAddrs = new Set();
-  for (const r of contractResults) {
-    for (const a of r.minterAddresses) allMinterAddrs.add(a);
-  }
-
-  let accountCreationMap = {};
-  if (allMinterAddrs.size > 0) {
-    console.log(`\nFetching account creation timestamps for ${allMinterAddrs.size} minters...`);
-    accountCreationMap = await fetchAccountCreationTimestamps([...allMinterAddrs]);
-  }
-
-  const timeToMintByContract = contractResults.map((r) => {
-    // Reconstruct mints from stored data
-    const mints = [];
-    // We need the original mints — use the ones in memory
-    // (they're in contractResults via the minterAddresses, but we need
-    //  the full mint events which were already stored. Since we have them
-    //  in memory from the fetch, let's compute from there.)
-    return r; // placeholder, we compute below
-  });
-
-  // Actually compute TTM per contract
-  // We need the original mint arrays — let's re-fetch from the DB
-  const ttmByContract = [];
-  for (const r of contractResults) {
-    const mintDocs = await col(db, "mints").find({
-      contractId: r.contractId,
-      snapshotId,
-    }).toArray();
-
-    const entries = computeTimeToMint(mintDocs, accountCreationMap);
-    const summary = summariseTimeToMint(entries);
-    ttmByContract.push({
-      label: r.label,
-      contractId: r.contractId,
-      summary,
-      count: entries.length,
-    });
+  if (accountIds.length > 1) {
+    console.log(`  Total wallets across all accounts: ${walletsCreated}`);
   }
 
   // Aggregate totals
@@ -673,7 +696,8 @@ async function sync() {
   // ── Build & store snapshot document ──
   const snapshot = {
     createdAt: snapshotId,
-    accountId,
+    accountIds,
+    accountId: accountIds[0] || "",
     walletsCreated,
     totals: {
       totalMints,
@@ -686,18 +710,28 @@ async function sync() {
       contractId: r.contractId,
       stats: r.stats,
       analytics: r.analytics,
+      minterAddresses: [...r.minterSet],
     })),
     crossRace: {
       returnRates,
       multiRaceHolders,
       churnFunnel,
-      timeToMintByContract: ttmByContract,
     },
   };
 
   await col(db, "snapshots").insertOne(snapshot);
   console.log(`\n✅ Snapshot stored: ${snapshotId.toISOString()}`);
   console.log(`   Mints: ${totalMints}  Transfers: ${totalTransfers}  Holders: ${allHolderAddrs.size}  Wallets: ${walletsCreated}`);
+
+  // Keep only the 30 most recent snapshots
+  const all = await col(db, "snapshots")
+    .find({}, { projection: { _id: 1 }, sort: { createdAt: -1 } })
+    .toArray();
+  if (all.length > 30) {
+    const toDelete = all.slice(30).map((s) => s._id);
+    const { deletedCount } = await col(db, "snapshots").deleteMany({ _id: { $in: toDelete } });
+    if (deletedCount > 0) console.log(`   🗑  Pruned ${deletedCount} old snapshot(s)`);
+  }
 }
 
 async function runLoop() {

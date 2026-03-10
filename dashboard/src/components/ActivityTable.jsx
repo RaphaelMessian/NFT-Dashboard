@@ -82,10 +82,18 @@ export default function ActivityTable({ mints, transfers }) {
                 </td>
                 <td className="py-2.5 px-3 font-mono text-xs text-gray-400">
                   {event.isMint ? (
-                    <span className="text-gray-600">—</span>
+                    <a
+                      href={`https://hashscan.io/mainnet/contract/${event.contractId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-500 hover:text-gray-300"
+                      title={event.contractId}
+                    >
+                      {event.contractLabel || truncateAddress(event.contractId) || "—"}
+                    </a>
                   ) : (
                     <a
-                      href={`https://hashscan.io/testnet/account/${event.from}`}
+                      href={`https://hashscan.io/mainnet/account/${event.from}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hover:text-gray-200"
@@ -96,7 +104,7 @@ export default function ActivityTable({ mints, transfers }) {
                 </td>
                 <td className="py-2.5 px-3 font-mono text-xs">
                   <a
-                    href={`https://hashscan.io/testnet/account/${event.to}`}
+                    href={`https://hashscan.io/mainnet/account/${event.to}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-green-400 hover:text-green-300"

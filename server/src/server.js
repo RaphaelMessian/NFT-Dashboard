@@ -70,7 +70,6 @@ app.get("/api/snapshots/:id", async (req, res) => {
 app.get("/api/mints", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.snapshotId) filter.snapshotId = new Date(req.query.snapshotId);
     if (req.query.contractId) filter.contractId = req.query.contractId;
     const mints = await col(db, "mints").find(filter).sort({ timestamp: 1 }).toArray();
     res.json(mints);
@@ -82,7 +81,6 @@ app.get("/api/mints", async (req, res) => {
 app.get("/api/transfers", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.snapshotId) filter.snapshotId = new Date(req.query.snapshotId);
     if (req.query.contractId) filter.contractId = req.query.contractId;
     const transfers = await col(db, "transfers").find(filter).sort({ timestamp: 1 }).toArray();
     res.json(transfers);
@@ -94,7 +92,6 @@ app.get("/api/transfers", async (req, res) => {
 app.get("/api/holders", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.snapshotId) filter.snapshotId = new Date(req.query.snapshotId);
     if (req.query.contractId) filter.contractId = req.query.contractId;
     const holders = await col(db, "holders").find(filter).sort({ tokenCount: -1 }).toArray();
     res.json(holders);
@@ -106,7 +103,10 @@ app.get("/api/holders", async (req, res) => {
 app.get("/api/wallets", async (req, res) => {
   try {
     const filter = {};
-    if (req.query.snapshotId) filter.snapshotId = new Date(req.query.snapshotId);
+    if (req.query.creatorAccountId) {
+      const ids = req.query.creatorAccountId.split(",").map((s) => s.trim()).filter(Boolean);
+      filter.creatorAccountId = ids.length > 1 ? { $in: ids } : ids[0];
+    }
     const wallets = await col(db, "wallets").find(filter).sort({ timestamp: 1 }).toArray();
     res.json(wallets);
   } catch (err) {

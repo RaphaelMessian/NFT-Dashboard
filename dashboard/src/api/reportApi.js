@@ -40,3 +40,12 @@ export async function fetchTransfers(snapshotId, contractId) {
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
+
+export async function fetchHolders(snapshotId, contractId) {
+  const params = new URLSearchParams();
+  if (snapshotId) params.set("snapshotId", snapshotId);
+  if (contractId) params.set("contractId", contractId);
+  const res = await fetch(`${API_BASE}/api/holders?${params}`);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}

@@ -5,69 +5,6 @@
  * as they appear in VITE_NFT_CONTRACTS (Race 1, Race 2, ...).
  */
 
-// ────────────────────────────────────────────────────
-// 1. Time to Mint
-//    Delta between the minter's account creation timestamp
-//    and their first mint timestamp for a given contract.
-// ────────────────────────────────────────────────────
-
-/**
- * Compute time-to-mint for each unique minter in a contract.
- *
- * @param {{ to: string, timestamp: Date }[]} mints — decoded mint events
- * @param {Map<string, Date>} accountCreationMap — address → account creation Date
- * @returns {{ address: string, createdAt: Date, firstMintAt: Date, deltaMs: number, deltaSec: number }[]}
- */
-export function computeTimeToMint(mints, accountCreationMap) {
-  // Find first mint per address
-  const firstMintByAddr = new Map();
-  for (const m of mints) {
-    const addr = m.to.toLowerCase();
-    if (!firstMintByAddr.has(addr) || m.timestamp < firstMintByAddr.get(addr)) {
-      firstMintByAddr.set(addr, m.timestamp);
-    }
-  }
-
-  const results = [];
-  for (const [addr, firstMint] of firstMintByAddr) {
-    const created = accountCreationMap.get(addr);
-    if (!created || !firstMint) continue;
-    const deltaMs = firstMint.getTime() - created.getTime();
-    results.push({
-      address: addr,
-      createdAt: created,
-      firstMintAt: firstMint,
-      deltaMs,
-      deltaSec: deltaMs / 1000,
-    });
-  }
-
-  results.sort((a, b) => a.deltaSec - b.deltaSec);
-  return results;
-}
-
-/**
- * Summarise time-to-mint results into avg / median / min / max.
- * @param {{ deltaSec: number }[]} ttmEntries
- */
-export function summariseTimeToMint(ttmEntries) {
-  if (ttmEntries.length === 0) {
-    return { avg: 0, median: 0, min: 0, max: 0, count: 0 };
-  }
-
-  const sorted = [...ttmEntries].sort((a, b) => a.deltaSec - b.deltaSec);
-  const secs = sorted.map((e) => e.deltaSec);
-  const sum = secs.reduce((a, b) => a + b, 0);
-
-  return {
-    avg: sum / secs.length,
-    median: secs[Math.floor(secs.length / 2)],
-    min: secs[0],
-    max: secs[secs.length - 1],
-    count: secs.length,
-  };
-}
-
 /**
  * Format seconds into a human-readable string.
  */

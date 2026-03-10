@@ -48,7 +48,7 @@ export default function HoldersTable({ holders }) {
                 <td className="py-2.5 px-3 text-gray-500">{i + 1}</td>
                 <td className="py-2.5 px-3">
                   <a
-                    href={`https://hashscan.io/testnet/account/${holder.address}`}
+                    href={`https://hashscan.io/mainnet/account/${holder.address}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-green-400 hover:text-green-300 font-mono text-xs"
