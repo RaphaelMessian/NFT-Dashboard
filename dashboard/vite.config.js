@@ -4,8 +4,8 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react()],
-  // Load .env from the root project directory (parent of dashboard/)
-  envDir: path.resolve(__dirname, ".."),
+  // Load .env from root (repo root locally, or dashboard/ on Vercel via env vars)
+  envDir: process.env.VERCEL ? __dirname : path.resolve(__dirname, ".."),
   server: {
     port: 3000,
     strictPort: true,
