@@ -39,6 +39,7 @@ export default function ReportPage() {
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [filterContractId, setFilterContractId] = useState("all");
   const reportRef = useRef();
   const retryRef = useRef(null);
 
@@ -95,10 +96,32 @@ export default function ReportPage() {
 
   const { totals, contracts, crossRace, walletsCreated, createdAt } = snapshot;
 
+  const visibleContracts =
+    filterContractId === "all"
+      ? contracts
+      : contracts.filter((c) => c.contractId === filterContractId);
+  const isFiltered = filterContractId !== "all";
+
   return (
     <div ref={reportRef}>
       {/* Controls bar (hidden on print) */}
-      <div className="flex items-center justify-end mb-6 print:hidden">
+      <div className="flex items-center justify-between mb-6 print:hidden gap-3 flex-wrap">
+        {/* Contract filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500 font-medium">Contract:</label>
+          <select
+            value={filterContractId}
+            onChange={(e) => setFilterContractId(e.target.value)}
+            className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500"
+          >
+            <option value="all">All contracts</option>
+            {contracts.map((c) => (
+              <option key={c.contractId} value={c.contractId}>
+                {c.label} ({c.contractId})
+              </option>
+            ))}
+          </select>
+        </div>
         <button
           onClick={handlePrint}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
@@ -111,26 +134,35 @@ export default function ReportPage() {
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white">
           NFT Launch — Snapshot Report
+          {isFiltered && (
+            <span className="ml-2 text-indigo-400 text-lg">
+              · {visibleContracts[0]?.label}
+            </span>
+          )}
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          Generated {fmtDate(createdAt)} • {contracts.length} contract
-          {contracts.length !== 1 ? "s" : ""} monitored
+          Generated {fmtDate(createdAt)} •{" "}
+          {isFiltered
+            ? `${visibleContracts[0]?.contractId}`
+            : `${contracts.length} contract${contracts.length !== 1 ? "s" : ""} monitored`}
         </p>
       </div>
 
       {/* ═══════════ GLOBAL STATS ═══════════ */}
-      <Card className="mb-6">
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <Stat label="Total Mints" value={totals.totalMints} />
-          <Stat label="Total Transfers" value={totals.totalTransfers} />
-          <Stat label="Unique Holders" value={totals.uniqueHolders} />
-          <Stat label="Total Supply" value={totals.totalSupply} />
-          <Stat label="Wallets Created" value={walletsCreated} />
-        </div>
-      </Card>
+      {!isFiltered && (
+        <Card className="mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <Stat label="Total Mints" value={totals.totalMints} />
+            <Stat label="Total Transfers" value={totals.totalTransfers} />
+            <Stat label="Unique Holders" value={totals.uniqueHolders} />
+            <Stat label="Total Supply" value={totals.totalSupply} />
+            <Stat label="Wallets Created" value={walletsCreated} />
+          </div>
+        </Card>
+      )}
 
       {/* ═══════════ PER-CONTRACT SECTIONS ═══════════ */}
-      {contracts.map((c, ci) => (
+      {visibleContracts.map((c, ci) => (
         <section key={ci} className="mb-10">
           <h3 className="text-lg font-bold text-indigo-400 mb-4 border-b border-gray-800 pb-2">
             📦 {c.label}{" "}
@@ -219,7 +251,7 @@ export default function ReportPage() {
       ))}
 
       {/* ═══════════ CROSS-RACE ANALYTICS ═══════════ */}
-      {crossRace && (
+      {!isFiltered && crossRace && (
         <section className="mb-10">
           <h3 className="text-lg font-bold text-emerald-400 mb-4 border-b border-gray-800 pb-2">
             🌐 Cross-Race Analytics
