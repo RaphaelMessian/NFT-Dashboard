@@ -168,3 +168,54 @@ Update these values:
 - `hardhat.config.js`: URL → `https://mainnet.hashio.io/api`, chainId → `295`
 - `server/src/sync.js`: `MIRROR_BASE` → `https://mainnet-public.mirrornode.hedera.com`
 - `dashboard/src/api/mirrorNode.js`: same `MIRROR_BASE` change
+
+## Cloud Deployment (Always-On)
+
+Instead of running the server locally with ngrok, deploy the API + database to the cloud for free:
+
+### 1. MongoDB Atlas (Free Database)
+
+1. Create a free account at [mongodb.com/atlas](https://www.mongodb.com/atlas)
+2. Create a free **M0 cluster** (512 MB, sufficient for snapshots)
+3. Set **Network Access** → Allow from anywhere (`0.0.0.0/0`)
+4. Create a database user and copy the connection string:
+   ```
+   mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/nft_dashboard
+   ```
+
+### 2. Render.com (Free API Server)
+
+1. Create a free account at [render.com](https://render.com)
+2. **New → Web Service** → connect your GitHub repo
+3. Configure:
+   - **Root Directory**: `server`
+   - **Build Command**: `npm install`
+   - **Start Command**: `node src/server.js`
+4. Add environment variables:
+   - `MONGO_URI` = your Atlas connection string
+   - `ALLOWED_ORIGINS` = `https://your-app.vercel.app`
+5. Deploy — Render gives you a URL like `https://nft-dashboard-api.onrender.com`
+
+### 3. Update Vercel
+
+In your Vercel project settings → Environment Variables:
+- `VITE_API_URL` = `https://nft-dashboard-api.onrender.com`
+
+Redeploy the dashboard and it will connect to the cloud API.
+
+### 4. Migrate Existing Data
+
+Export from local MongoDB and import to Atlas:
+
+```bash
+mongodump --db nft_dashboard --out ./dump
+mongorestore --uri "mongodb+srv://<user>:<pass>@cluster0.xxxxx.mongodb.net" ./dump
+```
+
+### 5. Run Sync
+
+The sync script can run on Render as a **Cron Job** (paid) or manually:
+
+```bash
+MONGO_URI="mongodb+srv://..." node server/src/sync.js
+```

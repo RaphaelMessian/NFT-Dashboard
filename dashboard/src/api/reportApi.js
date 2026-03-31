@@ -5,13 +5,8 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3002";
 
-// Skip ngrok browser warning page when using a ngrok tunnel
-const HEADERS = API_BASE.includes("ngrok")
-  ? { "ngrok-skip-browser-warning": "true" }
-  : {};
-
 async function apiFetch(url) {
-  const res = await fetch(url, { headers: HEADERS });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
