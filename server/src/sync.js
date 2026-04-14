@@ -765,6 +765,13 @@ async function runLoop() {
   }
 }
 
+// Keep Render's health check happy (web service requires a bound port)
+const http = require("http");
+const PORT = process.env.PORT || 3001;
+http.createServer((_, res) => res.end("sync ok")).listen(PORT, () => {
+  console.log(`[sync] Health check server listening on port ${PORT}`);
+});
+
 runLoop().catch((err) => {
   console.error("Fatal:", err);
   process.exit(1);
