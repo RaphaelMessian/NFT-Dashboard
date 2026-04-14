@@ -11,3 +11,23 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+
+  # Dedicated background worker for Hedera -> MongoDB sync loop
+  - type: worker
+    name: nft-dashboard-sync
+    runtime: node
+    region: frankfurt
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node src/sync.js
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: VITE_NFT_CONTRACTS
+        sync: false
+      - key: VITE_ACCOUNT_ID
+        sync: false
+      - key: SYNC_INTERVAL_MINUTES
+        value: "30"
+      - key: NODE_ENV
+        value: production

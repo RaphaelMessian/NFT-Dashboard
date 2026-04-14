@@ -196,6 +196,20 @@ Instead of running the server locally with ngrok, deploy the API + database to t
    - `ALLOWED_ORIGINS` = `https://your-app.vercel.app`
 5. Deploy — Render gives you a URL like `https://nft-dashboard-api.onrender.com`
 
+### 2b. Render Background Sync Worker (Recommended)
+
+Vercel serves the React app, but it cannot run a long-lived background sync loop.
+Run sync on Render using the worker defined in `render.yaml`:
+
+1. Create/apply the Blueprint from `render.yaml` (or add a Worker manually)
+2. Ensure these worker env vars are set:
+   - `MONGO_URI` = same Atlas connection string as API
+   - `VITE_NFT_CONTRACTS` = contracts list (`Label:0x...,Label2:0x...`)
+   - `VITE_ACCOUNT_ID` = creator account id(s)
+   - `SYNC_INTERVAL_MINUTES` = sync cadence (`30` recommended)
+
+The worker runs `node src/sync.js` continuously and keeps snapshots fresh for the report API.
+
 ### 3. Update Vercel
 
 In your Vercel project settings → Environment Variables:
@@ -214,7 +228,7 @@ mongorestore --uri "mongodb+srv://<user>:<pass>@cluster0.xxxxx.mongodb.net" ./du
 
 ### 5. Run Sync
 
-The sync script can run on Render as a **Cron Job** (paid) or manually:
+If you do not use the worker, run sync manually (one-shot):
 
 ```bash
 MONGO_URI="mongodb+srv://..." node server/src/sync.js
