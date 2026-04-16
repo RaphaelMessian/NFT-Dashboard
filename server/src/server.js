@@ -71,7 +71,7 @@ app.get("/api/mints", async (req, res) => {
   try {
     const filter = {};
     if (req.query.contractId) filter.contractId = req.query.contractId;
-    const mints = await col(db, "mints").find(filter).sort({ timestamp: 1 }).toArray();
+    const mints = await col(db, "mints").find(filter).sort({ timestamp: -1 }).limit(500).toArray();
     res.json(mints);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -93,7 +93,7 @@ app.get("/api/holders", async (req, res) => {
   try {
     const filter = {};
     if (req.query.contractId) filter.contractId = req.query.contractId;
-    const holders = await col(db, "holders").find(filter).sort({ tokenCount: -1 }).toArray();
+    const holders = await col(db, "holders").find(filter).sort({ tokenCount: -1 }).limit(500).toArray();
     res.json(holders);
   } catch (err) {
     res.status(500).json({ error: err.message });

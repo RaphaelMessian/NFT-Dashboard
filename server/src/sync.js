@@ -431,13 +431,15 @@ function buildHolderDistribution(holders) {
 }
 
 function buildCumulativeMints(mints) {
-  const sorted = [...mints].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  const sorted = [...mints].filter((m) => m.timestamp).sort((a, b) => a.timestamp - b.timestamp);
   let cumulative = 0;
-  return sorted.map((m) => ({
-    date: m.timestamp ? m.timestamp.toISOString().split("T")[0] : null,
-    tokenId: m.tokenId,
-    total: ++cumulative,
-  }));
+  const dailyMap = {};
+  for (const m of sorted) {
+    const day = m.timestamp.toISOString().split("T")[0];
+    cumulative++;
+    dailyMap[day] = cumulative;
+  }
+  return Object.entries(dailyMap).map(([date, total]) => ({ date, total }));
 }
 
 // ── Config ────────────────────────────────────────────────
