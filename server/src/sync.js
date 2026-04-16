@@ -791,12 +791,16 @@ async function runLoop() {
   }
 }
 
-// Keep Render's health check happy (web service requires a bound port)
-const http = require("http");
-const PORT = process.env.PORT || 3001;
-http.createServer((_, res) => res.end("sync ok")).listen(PORT, () => {
-  console.log(`[sync] Health check server listening on port ${PORT}`);
-});
+// Only start the health check server in long-lived mode (Render web service)
+// In one-shot mode (GitHub Actions), we must exit cleanly after the sync
+const intervalMin = parseInt(process.env.SYNC_INTERVAL_MINUTES || "0", 10);
+if (intervalMin > 0) {
+  const http = require("http");
+  const PORT = process.env.PORT || 3001;
+  http.createServer((_, res) => res.end("sync ok")).listen(PORT, () => {
+    console.log(`[sync] Health check server listening on port ${PORT}`);
+  });
+}
 
 runLoop().catch((err) => {
   console.error("Fatal:", err);
