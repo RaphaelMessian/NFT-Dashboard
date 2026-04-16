@@ -531,6 +531,15 @@ async function sync() {
 
   const snapshotId = new Date();
 
+  // ── Load previous snapshot for fast-path reuse ──
+  const prevSnapshot = await col(db, "snapshots").findOne({}, { sort: { createdAt: -1 } });
+  const prevContractMap = {};
+  if (prevSnapshot) {
+    for (const pc of prevSnapshot.contracts || []) {
+      prevContractMap[pc.contractId] = pc;
+    }
+  }
+
   // ── Per-contract data ──
   const contractResults = [];
 
@@ -546,11 +555,26 @@ async function sync() {
       console.log(`  First sync — fetching full history`);
     }
 
-    const [info, rawLogs] = await Promise.all([
-      fetchContractInfo(c.contractId),
-      fetchTransferLogs(c.contractId, cursor),
-    ]);
+    const rawLogs = await fetchTransferLogs(c.contractId, cursor);
     console.log(`  New logs fetched: ${rawLogs.length}`);
+
+    // ── Fast path: no new logs — skip all DB reads and reuse previous snapshot ──
+    if (rawLogs.length === 0 && cursor && prevContractMap[c.contractId]) {
+      const prev = prevContractMap[c.contractId];
+      contractResults.push({
+        label: c.label,
+        contractId: c.contractId,
+        stats: prev.stats,
+        minterAddresses: prev.minterAddresses,
+        minterSet: new Set(prev.minterAddresses || []),
+        holders: [],
+        analytics: prev.analytics,
+      });
+      console.log(`  ↩ No changes — skipped`);
+      continue;
+    }
+
+    const info = await fetchContractInfo(c.contractId);
 
     // ── Upsert new events into canonical collections (no snapshotId) ──
     if (rawLogs.length > 0) {
