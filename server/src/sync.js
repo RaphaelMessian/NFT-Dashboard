@@ -739,13 +739,14 @@ async function sync() {
   }
 
   // Aggregate totals
-  const allHolderAddrs = new Set();
+  // Use DB as source of truth for unique holders — contractResults.holders is []
+  // for fast-path (skipped) contracts, so iterating it would undercount.
+  const allHolderAddrs = new Set(await col(db, "holders").distinct("address"));
   let totalMints = 0;
   let totalTransfers = 0;
   for (const r of contractResults) {
     totalMints += r.stats.totalMints;
     totalTransfers += r.stats.totalTransfers;
-    for (const h of r.holders) allHolderAddrs.add(h.address);
   }
 
   // ── Build & store snapshot document ──
