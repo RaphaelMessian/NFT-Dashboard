@@ -42,6 +42,18 @@ app.get("/api/snapshots", async (_req, res) => {
   }
 });
 
+app.get("/api/snapshots/latest/meta", async (_req, res) => {
+  try {
+    const snapshot = await col(db, "snapshots")
+      .findOne({}, { sort: { createdAt: -1 }, projection: { _id: 1, createdAt: 1 } });
+    if (!snapshot) return res.status(404).json({ error: "No snapshots found" });
+    res.set("Cache-Control", "no-store");
+    res.json({ _id: snapshot._id, createdAt: snapshot.createdAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/snapshots/latest", async (_req, res) => {
   try {
     const snapshot = await col(db, "snapshots")

@@ -11,29 +11,30 @@ async function apiFetch(url) {
   return res.json();
 }
 
-// ── Snapshot cache (30s TTL) ─────────────────────────────────
+// ── Snapshot cache (invalidated when a new snapshot is stored in DB) ─────────
 let _snapshotCache = null;
-let _snapshotCacheAt = 0;
-const SNAPSHOT_CACHE_TTL_MS = 30_000;
+let _snapshotCacheId = null;
 
 export async function fetchSnapshots() {
   return apiFetch(`${API_BASE}/api/snapshots`);
 }
 
 export async function fetchLatestSnapshot() {
-  const now = Date.now();
-  if (_snapshotCache && now - _snapshotCacheAt < SNAPSHOT_CACHE_TTL_MS) {
+  // Cheap metadata check — only refetch the full snapshot if the DB has a newer one
+  const meta = await apiFetch(`${API_BASE}/api/snapshots/latest/meta`);
+  const latestId = String(meta._id);
+  if (_snapshotCache && _snapshotCacheId === latestId) {
     return _snapshotCache;
   }
   const data = await apiFetch(`${API_BASE}/api/snapshots/latest`);
   _snapshotCache = data;
-  _snapshotCacheAt = now;
+  _snapshotCacheId = latestId;
   return data;
 }
 
 export function invalidateSnapshotCache() {
   _snapshotCache = null;
-  _snapshotCacheAt = 0;
+  _snapshotCacheId = null;
 }
 
 export async function fetchSnapshotById(id) {
