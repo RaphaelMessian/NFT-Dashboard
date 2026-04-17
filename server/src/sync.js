@@ -298,6 +298,33 @@ function computeReturnRates(minterSets) {
   return rates;
 }
 
+function computeCumulativeUniqueMinters(minterSets) {
+  const seen = new Set();
+  return minterSets.map((set, i) => {
+    let newMinters = 0;
+    for (const addr of set) {
+      if (!seen.has(addr)) { seen.add(addr); newMinters++; }
+    }
+    return { race: i + 1, newMinters, cumulativeUnique: seen.size };
+  });
+}
+
+function computeLapsedReactivation(minterSets) {
+  const results = [];
+  for (let r = 2; r < minterSets.length; r++) {
+    const olderMinters = new Set();
+    for (let j = 0; j < r - 1; j++) for (const addr of minterSets[j]) olderMinters.add(addr);
+    const prevRace = minterSets[r - 1];
+    const currentRace = minterSets[r];
+    const reactivated = [];
+    for (const addr of currentRace) {
+      if (olderMinters.has(addr) && !prevRace.has(addr)) reactivated.push(addr);
+    }
+    results.push({ race: r + 1, reactivatedCount: reactivated.length, reactivated });
+  }
+  return results;
+}
+
 function computeMultiRaceHolders(holdersByRace, raceLabels) {
   const walletRaces = {};
   for (let i = 0; i < holdersByRace.length; i++) {
@@ -668,6 +695,8 @@ async function sync() {
 
   const minterSets = contractResults.map((r) => r.minterSet);
   const returnRates = computeReturnRates(minterSets);
+  const cumulativeUniqueMinters = computeCumulativeUniqueMinters(minterSets);
+  const lapsedReactivation = computeLapsedReactivation(minterSets);
   const multiRaceHolders = computeMultiRaceHolders(
     contractResults.map((r) => r.holders),
     contractResults.map((r) => r.label)
@@ -740,6 +769,8 @@ async function sync() {
     })),
     crossRace: {
       returnRates,
+      cumulativeUniqueMinters,
+      lapsedReactivation,
       multiRaceHolders,
       churnFunnel,
     },

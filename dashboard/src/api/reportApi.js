@@ -11,12 +11,29 @@ async function apiFetch(url) {
   return res.json();
 }
 
+// ── Snapshot cache (30s TTL) ─────────────────────────────────
+let _snapshotCache = null;
+let _snapshotCacheAt = 0;
+const SNAPSHOT_CACHE_TTL_MS = 30_000;
+
 export async function fetchSnapshots() {
   return apiFetch(`${API_BASE}/api/snapshots`);
 }
 
 export async function fetchLatestSnapshot() {
-  return apiFetch(`${API_BASE}/api/snapshots/latest`);
+  const now = Date.now();
+  if (_snapshotCache && now - _snapshotCacheAt < SNAPSHOT_CACHE_TTL_MS) {
+    return _snapshotCache;
+  }
+  const data = await apiFetch(`${API_BASE}/api/snapshots/latest`);
+  _snapshotCache = data;
+  _snapshotCacheAt = now;
+  return data;
+}
+
+export function invalidateSnapshotCache() {
+  _snapshotCache = null;
+  _snapshotCacheAt = 0;
 }
 
 export async function fetchSnapshotById(id) {

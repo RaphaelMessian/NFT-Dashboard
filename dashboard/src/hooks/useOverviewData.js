@@ -1,10 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchLatestSnapshot } from "../api/reportApi";
-import {
-  computeReturnRates,
-  computeCumulativeUniqueMinters,
-  computeLapsedReactivation,
-} from "../api/analytics";
 
 /**
  * Hook that fetches and aggregates data across ALL configured contracts.
@@ -55,16 +50,13 @@ export function useOverviewData(contracts, accountId) {
       const snapshotContracts = snapshot?.contracts ?? [];
       const crossRace = snapshot?.crossRace ?? {};
 
-      const minterSets = snapshotContracts.map((c) => new Set(c.minterAddresses ?? []));
-
-      const summaries = snapshotContracts.map((c, i) => ({
+      const summaries = snapshotContracts.map((c) => ({
         label: c.label,
         contractId: c.contractId,
         mints: c.stats.totalMints,
         transfers: c.stats.totalTransfers,
         holders: c.stats.uniqueHolders,
         totalSupply: c.stats.totalSupply,
-        minterSet: minterSets[i],
         error: null,
       }));
 
@@ -91,8 +83,8 @@ export function useOverviewData(contracts, accountId) {
         }))
       );
 
-      setCumulativeUniqueMinters(computeCumulativeUniqueMinters(minterSets));
-      setLapsedReactivation(computeLapsedReactivation(minterSets));
+      setCumulativeUniqueMinters(crossRace.cumulativeUniqueMinters ?? []);
+      setLapsedReactivation(crossRace.lapsedReactivation ?? []);
 
       // Aggregate dailyActivity across all contracts
       const dayMap = {};

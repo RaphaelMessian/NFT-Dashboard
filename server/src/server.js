@@ -45,8 +45,12 @@ app.get("/api/snapshots", async (_req, res) => {
 app.get("/api/snapshots/latest", async (_req, res) => {
   try {
     const snapshot = await col(db, "snapshots")
-      .findOne({}, { sort: { createdAt: -1 } });
+      .findOne({}, {
+        sort: { createdAt: -1 },
+        projection: { "contracts.minterAddresses": 0 },
+      });
     if (!snapshot) return res.status(404).json({ error: "No snapshots found" });
+    res.set("Cache-Control", "public, max-age=30");
     res.json(snapshot);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -82,7 +86,8 @@ app.get("/api/transfers", async (req, res) => {
   try {
     const filter = {};
     if (req.query.contractId) filter.contractId = req.query.contractId;
-    const transfers = await col(db, "transfers").find(filter).sort({ timestamp: 1 }).toArray();
+    const limit = Math.min(parseInt(req.query.limit) || 1000, 5000);
+    const transfers = await col(db, "transfers").find(filter).sort({ timestamp: -1 }).limit(limit).toArray();
     res.json(transfers);
   } catch (err) {
     res.status(500).json({ error: err.message });
