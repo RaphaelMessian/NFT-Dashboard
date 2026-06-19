@@ -120,7 +120,7 @@ export default function OverviewPage({ contracts, accountId, onSelectContract })
           {contractSummaries.map((summary, idx) => (
             <button
               key={summary.contractId}
-              onClick={() => onSelectContract(idx)}
+              onClick={() => onSelectContract(summary.contractId)}
               className="text-left rounded-xl border border-gray-700/50 bg-gray-900/50 p-5 hover:border-green-500/40 hover:bg-gray-900/80 transition-all group"
             >
               <div className="flex items-center justify-between mb-3">

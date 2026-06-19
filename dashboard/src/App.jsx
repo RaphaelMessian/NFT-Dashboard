@@ -10,11 +10,13 @@ const accountId = getAccountId();
 // page: "live" | "report"
 export default function App() {
   const [page, setPage] = useState("live");
-  // null = overview page, number = index into contracts[]
+  // null = overview page, string = contractId of selected contract
   const [selectedContract, setSelectedContract] = useState(null);
 
   const currentContract =
-    selectedContract !== null ? contracts[selectedContract] : null;
+    selectedContract !== null
+      ? contracts.find((c) => c.contractId === selectedContract) ?? null
+      : null;
 
   const goLive = () => {
     setPage("live");
