@@ -27,6 +27,12 @@ export default function OverviewPage({ contracts, accountId, onSelectContract })
     refresh,
   } = useOverviewData(contracts, accountId);
 
+  const sortedSummaries = [...contractSummaries].sort((a, b) => {
+    const idxA = contracts.findIndex((c) => c.contractId === a.contractId);
+    const idxB = contracts.findIndex((c) => c.contractId === b.contractId);
+    return (idxA === -1 ? Infinity : idxA) - (idxB === -1 ? Infinity : idxB);
+  });
+
   // Auto-fetch on mount
   useEffect(() => {
     if (contracts.length > 0) refresh();
@@ -117,7 +123,7 @@ export default function OverviewPage({ contracts, accountId, onSelectContract })
           NFT Contracts ({contractSummaries.length})
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {contractSummaries.map((summary, idx) => (
+          {sortedSummaries.map((summary, idx) => (
             <button
               key={summary.contractId}
               onClick={() => onSelectContract(summary.contractId)}
