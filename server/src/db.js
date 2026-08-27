@@ -45,12 +45,14 @@ async function ensureIndexes(db) {
   await col(db, "mints").createIndex({ contractId: 1, timestamp: 1 });
   await col(db, "mints").createIndex({ to: 1 });
   await col(db, "mints").createIndex({ snapshotId: 1 });
+  await col(db, "mints").createIndex({ nodeId: 1 });
 
   // Transfers — query by contract + timestamp
   await col(db, "transfers").createIndex({ contractId: 1, timestamp: 1 });
   await col(db, "transfers").createIndex({ from: 1 });
   await col(db, "transfers").createIndex({ to: 1 });
   await col(db, "transfers").createIndex({ snapshotId: 1 });
+  await col(db, "transfers").createIndex({ nodeId: 1 });
 
   // Holders — query by contract + snapshot
   await col(db, "holders").createIndex({ contractId: 1, snapshotId: 1 });

@@ -14,45 +14,15 @@
 require("dotenv").config({ path: require("path").resolve(__dirname, "../../.env") });
 
 const { connect, close, col, ensureIndexes } = require("./db");
+const { MIRROR_BASE, fetchJson, fetchTransactionMeta } = require("./mirrorClient");
+const { computeMintIntervalOps } = require("./mintIntervals");
 
 // ── Mirror Node helpers (server-side, no ES modules) ──────────
 
-const MIRROR_BASE = "https://mainnet-public.mirrornode.hedera.com";
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const ZERO_TOPIC =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
-
-// ── Global rate limiter: min gap between Mirror Node requests ──
-const MIRROR_MIN_INTERVAL_MS = 250; // max ~4 req/s
-let _lastRequestAt = 0;
-
-async function fetchJson(url, retries = 5) {
-  // Proactive throttle — wait until minimum interval has elapsed
-  const now = Date.now();
-  const gap = now - _lastRequestAt;
-  if (gap < MIRROR_MIN_INTERVAL_MS) {
-    await new Promise((r) => setTimeout(r, MIRROR_MIN_INTERVAL_MS - gap));
-  }
-  _lastRequestAt = Date.now();
-
-  let delay = 3000;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(url);
-    if (res.ok) return res.json();
-    if (res.status === 429) {
-      const retryAfter = res.headers.get("retry-after");
-      const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
-      console.warn(`  ⚠ 429 — waiting ${wait / 1000}s (attempt ${attempt + 1}/${retries + 1})`);
-      await new Promise((r) => setTimeout(r, wait));
-      _lastRequestAt = Date.now();
-      delay = Math.min(delay * 2, 60000);
-      continue;
-    }
-    throw new Error(`Mirror ${res.status}: ${url}`);
-  }
-  throw new Error(`Mirror still 429 after ${retries} retries: ${url}`);
-}
 
 async function fetchTransferLogs(contractId, afterTimestamp = null) {
   const logs = [];
@@ -78,9 +48,39 @@ function decodeLog(log) {
     tokenId: parseInt(topics[3], 16),
     isMint: topics[1] === ZERO_TOPIC,
     timestamp: log.timestamp ? new Date(parseFloat(log.timestamp) * 1000) : null,
+    // Full-precision "seconds.nanos" consensus timestamp, kept verbatim so we
+    // can look the transaction up by exact timestamp later (see
+    // enrichWithTransactionMeta) — the Date above only has ms precision.
+    rawTimestamp: log.timestamp || null,
     blockNumber: log.block_number,
     transactionHash: log.transaction_hash,
   };
+}
+
+/**
+ * Attach node_id + consensus/valid-start timestamps + submission→consensus
+ * latency to a batch of decoded mint/transfer events, by looking each one's
+ * parent transaction up on the Mirror Node. Batch mints/transfers emit
+ * several logs from the same transaction, so lookups are cached per
+ * transactionHash to avoid redundant requests.
+ */
+async function enrichWithTransactionMeta(decodedList) {
+  const cache = new Map(); // transactionHash -> meta | null
+  for (const d of decodedList) {
+    if (!d.transactionHash || !d.rawTimestamp) continue;
+    if (!cache.has(d.transactionHash)) {
+      let meta = null;
+      try {
+        meta = await fetchTransactionMeta(d.rawTimestamp);
+      } catch (err) {
+        console.warn(`  ⚠ Could not fetch node info for tx ${d.transactionHash}: ${err.message}`);
+      }
+      cache.set(d.transactionHash, meta);
+    }
+    const meta = cache.get(d.transactionHash);
+    if (meta) Object.assign(d, meta);
+  }
+  return decodedList;
 }
 
 function processLogs(rawLogs) {
@@ -608,6 +608,11 @@ async function sync() {
     // ── Upsert new events into canonical collections (no snapshotId) ──
     if (rawLogs.length > 0) {
       const decoded = rawLogs.map(decodeLog);
+
+      // Look up the consensus node + latency for each new event's transaction.
+      // One extra Mirror Node call per unique transactionHash in this batch.
+      await enrichWithTransactionMeta(decoded);
+
       const newMints     = decoded.filter((d) =>  d.isMint).map((d) => ({ ...d, contractId: c.contractId, contractLabel: c.label }));
       const newTransfers = decoded.filter((d) => !d.isMint).map((d) => ({ ...d, contractId: c.contractId, contractLabel: c.label }));
 
@@ -643,6 +648,15 @@ async function sync() {
       .sort({ timestamp: 1 })
       .toArray();
     console.log(`  Total — Mints: ${allMints.length}  Transfers: ${allTransfers.length}`);
+
+    // ── Compute time-between-mints (per contract, chronological order) ──
+    // Recomputed from full history on every run so it self-heals if mints
+    // ever land in DB out of order; cheap (pure arithmetic, no API calls).
+    const mintIntervalOps = computeMintIntervalOps(allMints);
+    if (mintIntervalOps.length > 0) {
+      await col(db, "mints").bulkWrite(mintIntervalOps);
+      console.log(`  → mintIntervalSec updated on ${mintIntervalOps.length} mint(s)`);
+    }
 
     // ── Recompute holders from full event history ──
     const holders = computeHoldersFromEvents(allMints, allTransfers);

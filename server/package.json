@@ -7,6 +7,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "sync": "node src/sync.js",
+    "backfill:mint-intervals": "node src/backfillMintIntervals.js",
+    "backfill:tx-meta": "node src/backfillTransactionMeta.js",
     "report": "node src/generateReport.js"
   },
   "dependencies": {
